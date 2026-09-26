@@ -71,7 +71,7 @@ executable schemerize
     -- other-extensions:
 
     -- Other library packages from which modules are imported.
-    build-depends:    base ^>=4.20.2.0, parsec
+    build-depends:    mtl ^>=2.3.1, array ^>=0.5.8.0, base ^>=4.20.2.0, parsec, array
 
     -- Directories containing source files.
     hs-source-dirs:   app
