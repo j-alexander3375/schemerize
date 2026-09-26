@@ -38,8 +38,8 @@ primitives = [("+", numericBinop (+)),
               ("null?", unaryOp isNull),
               ("vector?", unaryOp isVector),
               -- symbol handling (R5RS 6.3.3)
-              ("symbol->string", unaryOp symbolToString),
-              ("string->symbol", unaryOp stringToSymbol)]
+              ("symbol->string", unaryOpM symbolToString),
+              ("string->symbol", unaryOpM stringToSymbol)]
 
 spaces :: Parser ()
 spaces = skipMany1 space
@@ -79,10 +79,12 @@ showError (TypeMismatch expected found) = "Invalid type: expected " ++ expected 
 showError (Parser parseErr)             = "Parse Error at " ++ show parseErr 
 showError (Default msg)                 = "Error: " ++ msg
 
+trapError :: (MonadError e m, Show e) => m String -> m String
 trapError action = catchError action (return . show)
 
 extractVal :: ThrowsError a -> a
 extractVal (Right val) = val
+extractVal (Left err)  = error $ "extractVal: unhandled error: " ++ show err
 
 -- Helper Parse Functions
 
@@ -248,8 +250,8 @@ parseCharacter = do
                                             _         -> head value
 
 numericBinop :: (Integer -> Integer -> Integer) -> [LispVal] -> ThrowsError LispVal
-numericBinop op []            = throwError $ NumArgs 2 []
-numericBinop op singleVal@[_] = throwError $ NumArgs 2 singleVal
+numericBinop _  []            = throwError $ NumArgs 2 []
+numericBinop _  singleVal@[_] = throwError $ NumArgs 2 singleVal
 numericBinop op params        = mapM unpackNum params >>= return . Number . foldl1 op
 
 -- Exercise: no weak typing. Strings like "2" and singleton lists like (2)
@@ -263,11 +265,14 @@ unpackNum (String n) = let parsed = reads n in
 unpackNum (List [n]) = unpackNum n
 unpackNum notNum     = throwError $ TypeMismatch "number" notNum 
 
--- Applies a one-argument primitive. Wrong arity returns #f for now;
--- it should become a proper error once error handling exists.
-unaryOp :: (LispVal -> LispVal) -> [LispVal] -> LispVal
-unaryOp f [v] = f v
-unaryOp _ _   = Bool False
+-- Applies a one-argument primitive, throwing NumArgs on the wrong arity.
+unaryOp :: (LispVal -> LispVal) -> [LispVal] -> ThrowsError LispVal
+unaryOp f = unaryOpM (return . f)
+
+-- Like unaryOp, but for primitives that can fail on their argument.
+unaryOpM :: (LispVal -> ThrowsError LispVal) -> [LispVal] -> ThrowsError LispVal
+unaryOpM f [v]  = f v
+unaryOpM _ args = throwError $ NumArgs 1 args
 
 -- Exercise: type-testing primitives.
 isSymbol, isString, isChar, isBoolean, isNumber, isReal, isRational,
@@ -320,13 +325,13 @@ isVector (Vector _) = Bool True
 isVector _          = Bool False
 
 -- Exercise: symbol-handling primitives. A symbol is an Atom.
-symbolToString :: LispVal -> LispVal
-symbolToString (Atom name) = String name
-symbolToString _           = Bool False
+symbolToString :: LispVal -> ThrowsError LispVal
+symbolToString (Atom name) = return $ String name
+symbolToString notSymbol   = throwError $ TypeMismatch "symbol" notSymbol
 
-stringToSymbol :: LispVal -> LispVal
-stringToSymbol (String s) = Atom s
-stringToSymbol _          = Bool False
+stringToSymbol :: LispVal -> ThrowsError LispVal
+stringToSymbol (String s) = return $ Atom s
+stringToSymbol notString  = throwError $ TypeMismatch "string" notString
 
 -- Parse
 parseExpr :: Parser LispVal
